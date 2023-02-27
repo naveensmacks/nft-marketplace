@@ -40,12 +40,15 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
 contract MyStakingContract is IERC721Receiver {
+    uint256 constant REWARDS_PER_HOUR = 10 * 10**18;
+    uint256 constant SECONDS_IN_A_DAY = 24 * 60 * 60;
     MyERC20Token private token;
     IERC721 private nft;
     
     mapping(uint256 => address) public originalOwner;
     mapping(address => uint256) public stakeCount;
     mapping(address => uint256) public lastStakedTime;
+    mapping(address => mapping(uint256 => uint256)) public tokenTime;
 
     constructor(address tokenAddress, address nftAddress) {
         token = MyERC20Token(tokenAddress);
@@ -59,9 +62,11 @@ contract MyStakingContract is IERC721Receiver {
         bytes memory
     ) external override returns (bytes4) {
         require(msg.sender == address(nft), "Only accepts ERC721 tokens from specific contract");
-        require(block.timestamp - lastStakedTime[from] >= 24 hours, "Can only stake one NFT per 24 hours");
+        uint256 blockTimeStamp = block.timestamp;
+        require(blockTimeStamp - lastStakedTime[from] >= 24 hours, "Can only stake one NFT per 24 hours");
+        tokenTime[from][stakeCount[from]]= blockTimeStamp;
         stakeCount[from] += 1;
-        lastStakedTime[from] = block.timestamp;
+        lastStakedTime[from] = blockTimeStamp;
         originalOwner[tokenId] = from;
         token.mint(from, 10 * 10**18);
         return this.onERC721Received.selector;
@@ -71,6 +76,11 @@ contract MyStakingContract is IERC721Receiver {
         require(stakeCount[msg.sender] >0, "You haven't staked any NFT yet");
         require(originalOwner[tokenId] == msg.sender, "Invalid Token Id");
         stakeCount[msg.sender] -= 1 ;
+        uint256 tokenTimeStamp = tokenTime[msg.sender][stakeCount[msg.sender]];
+        uint256 timeDiff = block.timestamp  - tokenTimeStamp ;
+        require(timeDiff > 24 hours, "Cannot withdraw a NFT before 24 hours");
+        uint256 rewardAmount =  (timeDiff * REWARDS_PER_HOUR)/ SECONDS_IN_A_DAY;
+        token.mint(msg.sender, rewardAmount);
         nft.safeTransferFrom(address(this), msg.sender, tokenId);
     }
 
